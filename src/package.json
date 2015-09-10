@@ -1,0 +1,18 @@
+{
+  "name": "QuickStep",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "keywords": [],
+  "author": "Evan Hurd",
+  "license": "BSD-2-Clause",
+  "dependencies": {
+    "node-dom": "~0.1.0",
+    "imagemagick": "~0.1.3",
+    "jsdom": "~3.1.2",
+    "simulant": "~0.1.5"
+  }
+}

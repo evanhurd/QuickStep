@@ -24,6 +24,15 @@ function Collection(){
 	this.SubPub = new SubPub();
 	this.__defineGetter__('length', function(){return this.items.length});
 	this.sortFunction = null;
+	this.subCollectionOf = null;
+	this.filterFunction = null;
+	this.filterFunctionKeys = null;
+
+	if(this.allowedModels[0] && this.allowedModels[0].toString() == 'Collection'){
+		this.subCollectionOf = this.allowedModels[0];
+		this.allowedModels = this.allowedModels[0].allowedModels;
+		initCollectionOf(this);
+	}
 }
 
 Collection.prototype.on = function(eventName, callBack) {
@@ -31,11 +40,18 @@ Collection.prototype.on = function(eventName, callBack) {
 }
 
 Collection.prototype.add = function(){
+	var arg = arguments[0] && arguments[0].toString() == '[object Arguments]' ? arguments[0] : arguments;
+
+	if(this.subCollectionOf) {
+		return this.subCollectionOf.add.call(this.subCollectionOf, arguments);
+	}
+
 	var added = [];
-	for(var i = 0; i < arguments.length;i++){
-		var newItem = this.__addSingleItem(arguments[i]);
+	for(var i = 0; i < arg.length;i++){
+		var newItem = this.__addSingleItem(arg[i]);
 		if(newItem) added.push(newItem);
 	}
+
 	applySortMetaData(this);
 	if(added.length > 0) this.event({type:'Add',items:added});
 	return added;
@@ -46,9 +62,15 @@ Collection.prototype.event = function(eventProperties) {
 }
 
 Collection.prototype.remove = function(){
+	var arg = arguments[0] && arguments[0].toString() == '[object Arguments]' ? arguments[0] : arguments;
+
+	if(this.subCollectionOf) {
+		return this.subCollectionOf.remove.call(this.subCollectionOf, arguments);
+	}
+
 	var removed = [];
-	for(var i = 0; i < arguments.length;i++){
-		var removedItem = this.__removeSingleItem(arguments[i]);
+	for(var i = 0; i < arg.length;i++){
+		var removedItem = this.__removeSingleItem(arg[i]);
 		if(removedItem) removed.push(removedItem);
 	}
 	applySortMetaData(this);
@@ -62,6 +84,7 @@ Collection.prototype.__addSingleItem = function(item){
 	if(item.toString() == "CollectionItem"){
 		item = item.Item;
 	}
+	if(this.filterFunction && this.filterFunction(item) == false) return false;
 	if(this.isValidItem(item) == false) return false;
 	var collectionItem = new CollectionItem(item, this);
 	addGetterIndex(this);
@@ -77,12 +100,13 @@ Collection.prototype.__addSingleItem = function(item){
 
 Collection.prototype.__removeSingleItem = function(item){
 	var index = this.indexOfItem(item);
+
 	if(index > -1){
 		var collectionItem = this.items[index];
 		this.items[index].destory();
 		removeGetterIndex(this);
 		this.items.splice(index,1);
-		return collectionItem;
+		return item;
 	}else{
 		return false
 	}
@@ -98,19 +122,27 @@ Collection.prototype.sort = function(sortFunction){
 	return this;
 }
 
+Collection.prototype.filter = function(filterFunction){
+	this.filterFunction = filterFunction;
+	for(var i = 1; i < arguments.length;i++){
+		bindFilterKey(this, arguments[i]);
+	}
+	return this;
+}
+
 Collection.prototype.indexOfItem = function(item){
 	if(item.toString() == "CollectionItem"){
-		return this.items.indexOf(item);
-	}else{
-		
-		for(var i = 0; i < this.items.length; i++){
-			if(this.items[i].Item == item){
-				return i;
-			}
+		var item = item.Item;
+	}
+
+	for(var i = 0; i < this.items.length; i++){
+		if(this.items[i].Item == item){
+			return i;
 		}
-		return -1;
-	}	
+	}
+	return -1;	
 }
+
 
 Collection.prototype.isValidItem = function(item){
 	if(item.toString() == "CollectionItem"){
@@ -124,10 +156,16 @@ Collection.prototype.isValidItem = function(item){
 	return false;
 }
 
+Collection.prototype.crossFilter = function(adjacentCollection,key, adjacentKey){
+	new crossFilterCollection(this, key, adjacentCollection, adjacentKey);
+	return this;
+}
+
+
 
 function failInvalidModels(models){
 	for(var i = 0; i < models.length;i++) {
-		if(models[i].toString() != "Model"){
+		if(models[i].toString() != "Model" && models[i].toString() != "Collection"){
 			throw models[i].toString() + " is not a valid Model!";
 		}
 	}
@@ -165,8 +203,7 @@ function addGetterIndex(collection){
 function removeGetterIndex(collection){
 	if(collection.items.length > 0) {
 		delete collection[collection.items.length-1];
-	}
-	
+	}	
 }
 
 function indexGetter(collection, index){
@@ -197,5 +234,150 @@ function applySortMetaData(collection){
 		collection.items[i]._previousItem = collection.items[i-1] || null;
 		collection.items[i]._nextItem = collection.items[i+1] || null;
 		collection.items[i]._index = i;
+	}
+}
+
+function initCollectionOf(collection){
+
+	collection.subCollectionOf.on('Add', function(collection, event){
+		for(var i = 0; i < event.items.length; i++){
+			collection.__addSingleItem(event.items[i]);
+		}
+		if(event.items.length > 0){
+			applySortMetaData(collection);
+		}
+	}.bind(collection,collection));
+
+	collection.subCollectionOf.on('Remove', function(collection, event){
+		for(var i = 0; i < event.items.length; i++){
+
+			collection.__removeSingleItem(event.items[i]);
+		}
+		if(event.items.length > 0){
+			applySortMetaData(collection);
+		}
+	}.bind(collection,collection));
+
+}
+
+function bindFilterKey(collection, filterKey){
+	if(!collection.filterFunction) return false;
+	var subpub = collection.subCollectionOf ? collection.subCollectionOf.SubPub : collection.SubPub;
+
+	subpub.subscribe(filterKey, function(collection, event){
+		if(event.type == 'Update' && event.item){
+			var index = collection.indexOfItem(event.item);
+			if(collection.filterFunction(event.item) == true){
+				if(index < 0)collection.__addSingleItem(event.item);
+			}else{
+				if(index >= 0)collection.__removeSingleItem(event.item);
+			}
+		}
+	}.bind(collection, collection));
+}
+
+function crossFilterCollection(collection, key, adjacentCollection, adjacentKey){
+	this.collection = collection;
+	this.key = key;
+	this.adjacentCollection = adjacentCollection;
+	this.adjacentKey = adjacentKey;
+	this.adjacentModel = adjacentCollection.allowedModels[0];
+	this.model = collection.allowedModels[0];
+	this.majorCollection = collection.subCollectionOf;
+
+	this.keymap = {};
+	this.keymap[adjacentKey] = {};
+	this.keymap[key] = {};
+
+	if(!this.majorCollection){
+		throw new Error('The Collection needs to be initilized as a Sub Collection!');
+	}
+	if(!this.adjacentModel || !this.model){
+		throw new Error('crossFilter Collections require given Models!');
+	}
+
+
+	this.adjacentCollection.on('Add', function(event){
+		for(var i = 0; i < event.items.length;i++){
+			moveItemsWhere(this.majorCollection, this.collection, this.key, event.items[i][this.adjacentKey]);
+			//locateAndAdd(this.majorCollection, this.collection, this.key, event.items[i], this.adjacentKey, this.adjacentCollection);
+		}
+	}.bind(this));
+
+	this.adjacentCollection.on('Remove', function(event){
+		for(var i = 0; i < event.items.length;i++){
+			locateAndRemove(this.majorCollection, this.collection, this.key, event.items[i], this.adjacentKey, this.adjacentCollection);
+		}
+	}.bind(this));
+
+	this.collection.filter(function(item){
+		if(findInCollection(this.adjacentCollection, this.adjacentKey, item[this.key])){
+			return true;
+		}else{
+			//console.log('Here!!!', item[this.key]);
+			return false;
+		}
+	}.bind(this),this.model.toString() + '.'+this.key);
+
+	this.LinkExistingCollectionItems = function (c1, c2, k1, k2){
+		for(var ic1 = 0; ic1 < c1.length; ic1++){
+			for(var ic2 = 0; ic2 < c2.length; ic2++){
+
+				if(c1[ic1][k1] == c2[ic2][k2]){
+					this.majorCollectionMatches.push(c1[ic1]);
+					this.adjacentCollectionMatches.push(c2[ic2]);
+				}
+			}
+		}
+	}.bind(this);
+
+	//this.LinkExistingCollectionItems(this.majorCollection, this.adjacentCollection, this.key, this.adjacentKey);
+
+	function locateAndAdd(collection, targetCollection, key, item, itemKey, adjacentCollection){
+		var foundItem = findInCollection(collection, key, item[itemKey]);
+		if(foundItem && collection.indexOfItem(foundItem) > -1){
+			targetCollection.__addSingleItem(foundItem);
+		}
+	}
+
+	function locateAndRemove(collection, targetCollection, key, item, itemKey, adjacentCollection){
+		if(findInCollection(adjacentCollection, itemKey, item[itemKey])) return true;
+
+		var foundItem = findInCollection(collection, key, item[itemKey]);
+		if(foundItem && collection.indexOfItem(foundItem) > -1){
+			targetCollection.__removeSingleItem(foundItem);
+		}
+	}
+
+}
+
+
+function findInCollection(collection, key, value){
+	for(var i = 0; i < collection.length; i++){
+		if(collection[i][key] == value){
+			return collection[i];
+		}
+	}
+	return false;
+}
+
+function addToKeyMap(keymap, key, item ){
+	if(!keymap[key][item[key]]) {
+		keymap[key][item[key]] = item;
+	}
+}
+
+function getItemFromKeyMap(keymap, key, value ){
+	return keymap[key][value];
+}
+
+function moveItemsWhere(fromCollection, toCollection, key, value){
+	for(var i = 0 ; i < fromCollection.length; i++){
+		if(fromCollection[i][key] == value){
+			var item = fromCollection[i];
+			if(toCollection.indexOfItem(item) == -1){
+				toCollection.__addSingleItem(item);
+			} 
+		}
 	}
 }

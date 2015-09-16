@@ -132,6 +132,180 @@ describe('Collection Tests', function(){
 		Books.remove(book1);
 	});
 
+	it("Does the Filter Work:no Filter Keys", function(done){
+		Books = new Collection(Book);
 
+		book1 = new Book({Title:'Book 1', Author:'1 Book'});
+		book2 = new Book({Title:'Book 2', Author:'2 Book'});
+		book3 = new Book({Title:'Book 3', Author:'3 Book'});
+
+		Books.filter(function(item){
+			if(item.Title == 'Book 1'){
+				return true;
+			}else{
+				return false;
+			}
+		});
+
+		Books.add(book3);
+		Books.add(book2);
+		Books.add(book1);
+
+		assert.equal(Books.length, 1, 'The length of books should be 1! Filter did not apply correctly!');
+		assert.equal(Books[0].Author, '1 Book', 'Filter did not apply correctly');
+		done();
+	});
+
+	it("Does the Filter Work:Filter Keys", function(done){
+		Books = new Collection(Book);
+
+		book1 = new Book({Title:'Book 1', Author:'1 Book'});
+		book2 = new Book({Title:'Book 2', Author:'2 Book'});
+		book3 = new Book({Title:'Book 3', Author:'3 Book'});
+
+		Books.filter(function(item){
+			if(item.Title == 'Book 1'){
+				return true;
+			}else{
+				return false;
+			}
+		}, 'Book.Title');
+
+		Books.add(book3);
+		Books.add(book2);
+		Books.add(book1);
+
+		assert.equal(Books.length, 1, 'The length of books should be 1! Filter did not apply correctly!');
+		assert.equal(Books[0].Author, '1 Book', 'Filter did not apply correctly');
+
+		book1.Title = 'Book 1.1';
+		assert.equal(Books.length, 0, 'The length of books should be 0! Filter did not apply correctly!');
+		book2.Title = 'Book 1';
+		Books.add(book2);
+		assert.equal(Books.length, 1, 'The length of books should be 1! Filter did not apply correctly!');
+
+		done();
+	});
+
+	it("CollectionOf Collection", function(done){
+		Books = new Collection(Book);
+		BooksOfBooks = new Collection(Books);
+
+		book1 = new Book({Title:'Book 1', Author:'1 Book'});
+		book2 = new Book({Title:'Book 2', Author:'2 Book'});
+		book3 = new Book({Title:'Book 3', Author:'3 Book'});
+
+		Books.add(book3);
+		BooksOfBooks.add(book2);
+		Books.add(book1);
+
+		assert.equal(Books.length, 3, 'The length of Books should be 3!');
+		assert.equal(Books.length, BooksOfBooks.length, 'The length of Books should match BooksOfBooks!');
+
+		BooksOfBooks.remove(book3);
+		BooksOfBooks.remove(book2);
+		BooksOfBooks.remove(book1);
+
+		assert.equal(Books.length, 0, 'The length of Books should be 0!');
+		assert.equal(Books.length, BooksOfBooks.length, 'The length of Books should match BooksOfBooks and both be 0!');
+		done();
+	});
+
+	it("CollectionOf Collection:no Filter Keys", function(done){
+
+		book1 = new Book({Title:'Book 1', Author:'1 Book'});
+		book2 = new Book({Title:'Book 2', Author:'2 Book'});
+		book3 = new Book({Title:'Book 3', Author:'3 Book'});		
+
+		BooksOfBooks.filter(function(item){
+			if(item.Title == 'Book 1'){
+				return true;
+			}else{
+				return false;
+			}
+		});
+
+		Books.add(book3);
+		Books.add(book2);
+		Books.add(book1);
+		assert.equal(BooksOfBooks.length, 1, 'The length of BooksOfBooks should be 1! Filter did not apply correctly!');
+		assert.equal(BooksOfBooks[0].Author, '1 Book', 'Filter did not apply correctly');
+
+		Books.remove(book3);
+		Books.remove(book2);
+		Books.remove(book1);
+		assert.equal(BooksOfBooks.length, 0, 'The length of BooksOfBooks should be 0! Filter did not apply correctly!');
+		done();
+	});
+
+
+	it("CollectionOf Collection:Filter Keys", function(done){
+
+		BooksOfBooks.filter(function(item){
+			if(item.Title == 'Book 1'){
+				return true;
+			}else{
+				return false;
+			}
+		}, 'Book.Title');
+
+		Books.add(book3);
+		Books.add(book2);
+		Books.add(book1);
+
+		assert.equal(BooksOfBooks.length, 1, 'A: The length of BooksOfBooks should be 1! Filter did not apply correctly!');
+		assert.equal(BooksOfBooks[0].Author, '1 Book', 'Filter did not apply correctly');
+
+		book1.Title = 'Book 1.1';
+		assert.equal(BooksOfBooks.length, 0, 'The length of BooksOfBooks should be 0! Filter did not apply correctly!');
+		book2.Title = 'Book 1';
+		assert.equal(BooksOfBooks.length, 1, 'B: The length of BooksOfBooks should be 1! Filter did not apply correctly!');
+		assert.equal(Books.length, 3, 'The length of Books should be 3! Filter did not apply correctly!');
+		done();
+
+	});
+
+	it("CollectionOf CrossFilter", function(done){
+		var Book = new Model("Book", ["Title","Author"]);
+		var Author = new Model("Author", ["Name"]);
+
+		Books = new Collection(Book);
+		Authors = new Collection(Author);
+
+		BookAuthors = new Collection(Books).crossFilter(Authors, 'Author', 'Name');
+
+		book1 = new Book({Title:'Book 1', Author:'1 Book'});
+		book2 = new Book({Title:'Book 2', Author:'2 Book'});
+		book3 = new Book({Title:'Book 3', Author:'3 Book'});
+		book4 = new Book({Title:'Book 4', Author:'3 Book'});
+		book5 = new Book({Title:'Book 5', Author:'3 Book'});
+
+		book6 = new Book({Title:'Book 5', Author:'4 Book'});
+		book7 = new Book({Title:'Book 5', Author:'5 Book'});
+
+		author1 = new Author({Name:'1 Book'});
+		author2 = new Author({Name:'2 Book'});
+		author3 = new Author({Name:'3 Book'});
+		author4 = new Author({Name:'6 Book'});
+
+		Books.add(book3);
+		Books.add(book2);
+		Books.add(book1);
+		Books.add(book4);
+		Books.add(book5);
+		Books.add(book6);
+		Books.add(book7);
+
+		Authors.add(author1);
+		Authors.add(author2);
+		Authors.add(author3);
+		Authors.add(author4);
+
+		assert.equal(Books.length, 7, 'A: The length of Books should be 7!');
+		assert.equal(Authors.length, 4, 'A: The length of Authors should be 3!');
+		assert.equal(BookAuthors.length, 5, 'A: The length of BooksOfBooks should be 5! Filter did not apply correctly!');
+		done();
+		
+	});
 
 });

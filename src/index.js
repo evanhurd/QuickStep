@@ -3,16 +3,16 @@ var Model = require('./Model.js');
 var Collection = require('./Collection.js');
 var CollectionElement = require('./CollectionElement.js');
 var ModelValue = require('./ModelValue.js');
-var Element = require('./extensions/element.js');
+var Primitives = require('./primitives/index.js');
+var SubPub = require('./subpub.js');
 
 QuickStep.Model = Model;
 QuickStep.Collection = Collection;
 QuickStep.CollectionElement = CollectionElement;
 QuickStep.ModelValue = ModelValue;
-QuickStep.Element = Element;
-
-
-
+QuickStep.Primitives = Primitives;
+QuickStep.Primitives = Primitives;
+QuickStep.SubPub = SubPub;
 
 module.exports = QuickStep;
-if(window)window.QuickStep = QuickStep;
+window.QuickStep = QuickStep;

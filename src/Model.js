@@ -1,10 +1,14 @@
 var SubPub = require('./subpub.js');
 module.exports = Model;
 
+var modelIdCounter = 0;
+
 function Model(name, keys, settings) {
 
 	function Item(model, keyValuePair){
 		var self = this;
+
+		self._id = modelIdCounter++;
 		var properties = {};
 		self.Properties = properties;
 		self.Event = ItemEvent.bind(self, self);
@@ -14,7 +18,13 @@ function Model(name, keys, settings) {
 		properties.keyValuePair = keyValuePair || {};
 		properties.Model = model;
 		initItemGettersAndSetters(self);
-		self.init(self);
+		if(this.init) self.init(this);
+
+		if(keyValuePair instanceof Item){
+			keyValuePair.on('*', function(event){
+				console.log(event);
+			});
+		}
 	}
 
 	Item.keys = keys;
@@ -25,7 +35,8 @@ function Model(name, keys, settings) {
 	Item.prototype.event = function(eventProperties){
 		fireEvent(this, new ItemEvent(this, eventProperties));
 	};
-	Item.prototype.init = function(){};
+	//Item.prototype.init = function(){};
+	Item.prototype.initFunctions = [];
 	Item.prototype.on = on;
 	Item.SubPub = new SubPub();
 	Item.on = on;
@@ -117,23 +128,45 @@ function extendModel(model, withModel){
 				||	proto == "on"
 				||	proto == "event"
 				||	proto == "toString"
-				||	proto == "init"
+				//||	proto == "init"
 				||	proto == "extenedFrom") {
 				continue;
 			}
 
 			if(model.prototype[proto] == undefined) {
 				model.prototype[proto] = withModel.prototype[proto];
+			}else{
+
+				if(typeof withModel.prototype[proto] == 'function'){					
+					model.prototype[proto] = (function(nativeProto, extenededProto, proto){
+						var argArray = "__"+proto+"ArgArray";
+						return function(){
+							if(!this[argArray]){
+								this[argArray] = [];
+								for(var i = 0; i < arguments.length;i++){
+									this[argArray].push(arguments[i]);
+								}								
+							}
+
+							//console.log(extenededProto.toString());
+
+							nativeProto.apply(this, this[argArray]);
+							return extenededProto.apply(this, this[argArray]);											
+						};
+
+					})(model.prototype[proto], withModel.prototype[proto], proto);	
+				}				
 			}
 		}
 
 		//Extend proto.init
-		if(typeof withModel.prototype.init == 'function'){
+		/*if(typeof withModel.prototype.init == 'function'){
 			model.prototype.init = function(nativeInit, extenededInit, item){
-				extenededInit.call(item);
-				nativeInit.call(item);
-			}.bind(model,model.prototype.init,withModel.prototype.init);		
-		}
+				if(!item) throw new Error('Initiator Item is undefined!');
+				nativeInit.apply(item, [item]);
+				extenededInit.apply(item, [item]);
+			}.bind(model, model.prototype.init, withModel.prototype.init);		
+		}*/
 
 		return model;
 	}else{

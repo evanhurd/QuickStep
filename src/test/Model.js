@@ -114,16 +114,91 @@ describe('Model Tests', function(){
 
 		var B = new Model('B',['b']);
 		B.prototype.init = function(){
-			this.a = this.a + 1;
+			this.a++;
 			this.b = 2;
 		}
 		B.extends(A);
 
-		var b = new B({a:0,b:2});
 		var a = new A({a:0});
+		var b = new B({a:0,b:0});
+
+		assert(b.a == 1, "b.a should have been 1!");
+		assert(b.b == 2, "b.b should have been 2!");
+		done();
+	});
+
+	it("Test overlapping extends", function(done){
+		var A = new Model('A',['a']);
+		A.prototype.test = function(){
+			this.a++;
+		}
+
+		var B = new Model('B',['b']);
+		B.prototype.test = function(){
+			this.a++;
+			this.b = 2;
+		}
+		B.extends(A);
+
+		var a = new A({a:0});
+		var b = new B({a:0,b:0});
+
+		b.test();
 
 		assert(b.a == 2, "b.a should have been 2!");
-		assert(b.b == 2, "b.a should have been 2!");
+		assert(b.b == 2, "b.b should have been 2!");
+		done();
+	});
+
+	it("Test overlapping extends: Editing arguments", function(done){
+		var A = new Model('A',['a']);
+		A.prototype.test = function(a){
+			this.a = a;
+		}
+
+		var B = new Model('B',['b']);
+		B.prototype.test = function(a){
+			a++;
+			this.__testArgArray[0]++;
+		}
+		B.extends(A);
+
+		var a = new A({a:0});
+		var b = new B({a:0,b:0});
+
+		b.test(1);
+
+		assert(b.a == 2, "b.a should have been 2!");
+		done();
+	});
+
+	it("Test  three overlapping extends", function(done){
+		var A = new Model('A',['a']);
+		A.prototype.test = function(a){
+			this.a = a;
+			console.log("A");
+		}
+
+		var B = new Model('B',['b']);
+		B.prototype.test = function(a){
+			a++;
+			console.log("B");
+		}
+		B.extends(A);
+
+		var C = new Model('C',['c']);
+		C.prototype.test = function(a){
+			a++;
+			console.log("C");
+		}
+		C.extends(B);
+
+
+		var c = new A({a:0});
+
+		c.test(1);
+
+		assert(c.a == 3, "c.a should have been 3!");
 		done();
 	});
 

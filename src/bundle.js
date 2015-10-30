@@ -25,6 +25,15 @@ function Collection(){
 	this.SubPub = new SubPub();
 	this.__defineGetter__('length', function(){return this.items.length});
 	this.sortFunction = null;
+	this.subCollectionOf = null;
+	this.filterFunction = null;
+	this.filterFunctionKeys = null;
+
+	if(this.allowedModels[0] && this.allowedModels[0].toString() == 'Collection'){
+		this.subCollectionOf = this.allowedModels[0];
+		this.allowedModels = this.allowedModels[0].allowedModels;
+		initCollectionOf(this);
+	}
 }
 
 Collection.prototype.on = function(eventName, callBack) {
@@ -32,11 +41,18 @@ Collection.prototype.on = function(eventName, callBack) {
 }
 
 Collection.prototype.add = function(){
+	var arg = arguments[0] && arguments[0].toString() == '[object Arguments]' ? arguments[0] : arguments;
+
+	if(this.subCollectionOf) {
+		return this.subCollectionOf.add.call(this.subCollectionOf, arguments);
+	}
+
 	var added = [];
-	for(var i = 0; i < arguments.length;i++){
-		var newItem = this.__addSingleItem(arguments[i]);
+	for(var i = 0; i < arg.length;i++){
+		var newItem = this.__addSingleItem(arg[i]);
 		if(newItem) added.push(newItem);
 	}
+
 	applySortMetaData(this);
 	if(added.length > 0) this.event({type:'Add',items:added});
 	return added;
@@ -47,9 +63,15 @@ Collection.prototype.event = function(eventProperties) {
 }
 
 Collection.prototype.remove = function(){
+	var arg = arguments[0] && arguments[0].toString() == '[object Arguments]' ? arguments[0] : arguments;
+
+	if(this.subCollectionOf) {
+		return this.subCollectionOf.remove.call(this.subCollectionOf, arguments);
+	}
+
 	var removed = [];
-	for(var i = 0; i < arguments.length;i++){
-		var removedItem = this.__removeSingleItem(arguments[i]);
+	for(var i = 0; i < arg.length;i++){
+		var removedItem = this.__removeSingleItem(arg[i]);
 		if(removedItem) removed.push(removedItem);
 	}
 	applySortMetaData(this);
@@ -63,6 +85,7 @@ Collection.prototype.__addSingleItem = function(item){
 	if(item.toString() == "CollectionItem"){
 		item = item.Item;
 	}
+	if(this.filterFunction && this.filterFunction(item) == false) return false;
 	if(this.isValidItem(item) == false) return false;
 	var collectionItem = new CollectionItem(item, this);
 	addGetterIndex(this);
@@ -78,12 +101,13 @@ Collection.prototype.__addSingleItem = function(item){
 
 Collection.prototype.__removeSingleItem = function(item){
 	var index = this.indexOfItem(item);
+
 	if(index > -1){
 		var collectionItem = this.items[index];
 		this.items[index].destory();
 		removeGetterIndex(this);
 		this.items.splice(index,1);
-		return collectionItem;
+		return item;
 	}else{
 		return false
 	}
@@ -99,19 +123,27 @@ Collection.prototype.sort = function(sortFunction){
 	return this;
 }
 
+Collection.prototype.filter = function(filterFunction){
+	this.filterFunction = filterFunction;
+	for(var i = 1; i < arguments.length;i++){
+		bindFilterKey(this, arguments[i]);
+	}
+	return this;
+}
+
 Collection.prototype.indexOfItem = function(item){
 	if(item.toString() == "CollectionItem"){
-		return this.items.indexOf(item);
-	}else{
-		
-		for(var i = 0; i < this.items.length; i++){
-			if(this.items[i].Item == item){
-				return i;
-			}
+		var item = item.Item;
+	}
+
+	for(var i = 0; i < this.items.length; i++){
+		if(this.items[i].Item == item){
+			return i;
 		}
-		return -1;
-	}	
+	}
+	return -1;	
 }
+
 
 Collection.prototype.isValidItem = function(item){
 	if(item.toString() == "CollectionItem"){
@@ -125,10 +157,16 @@ Collection.prototype.isValidItem = function(item){
 	return false;
 }
 
+Collection.prototype.crossFilter = function(adjacentCollection,key, adjacentKey){
+	new crossFilterCollection(this, key, adjacentCollection, adjacentKey);
+	return this;
+}
+
+
 
 function failInvalidModels(models){
 	for(var i = 0; i < models.length;i++) {
-		if(models[i].toString() != "Model"){
+		if(models[i].toString() != "Model" && models[i].toString() != "Collection"){
 			throw models[i].toString() + " is not a valid Model!";
 		}
 	}
@@ -166,8 +204,7 @@ function addGetterIndex(collection){
 function removeGetterIndex(collection){
 	if(collection.items.length > 0) {
 		delete collection[collection.items.length-1];
-	}
-	
+	}	
 }
 
 function indexGetter(collection, index){
@@ -200,7 +237,152 @@ function applySortMetaData(collection){
 		collection.items[i]._index = i;
 	}
 }
-},{"./CollectionItem.js":3,"./subpub.js":9}],2:[function(require,module,exports){
+
+function initCollectionOf(collection){
+
+	collection.subCollectionOf.on('Add', function(collection, event){
+		for(var i = 0; i < event.items.length; i++){
+			collection.__addSingleItem(event.items[i]);
+		}
+		if(event.items.length > 0){
+			applySortMetaData(collection);
+		}
+	}.bind(collection,collection));
+
+	collection.subCollectionOf.on('Remove', function(collection, event){
+		for(var i = 0; i < event.items.length; i++){
+
+			collection.__removeSingleItem(event.items[i]);
+		}
+		if(event.items.length > 0){
+			applySortMetaData(collection);
+		}
+	}.bind(collection,collection));
+
+}
+
+function bindFilterKey(collection, filterKey){
+	if(!collection.filterFunction) return false;
+	var subpub = collection.subCollectionOf ? collection.subCollectionOf.SubPub : collection.SubPub;
+
+	subpub.subscribe(filterKey, function(collection, event){
+		if(event.type == 'Update' && event.item){
+			var index = collection.indexOfItem(event.item);
+			if(collection.filterFunction(event.item) == true){
+				if(index < 0)collection.__addSingleItem(event.item);
+			}else{
+				if(index >= 0)collection.__removeSingleItem(event.item);
+			}
+		}
+	}.bind(collection, collection));
+}
+
+function crossFilterCollection(collection, key, adjacentCollection, adjacentKey){
+	this.collection = collection;
+	this.key = key;
+	this.adjacentCollection = adjacentCollection;
+	this.adjacentKey = adjacentKey;
+	this.adjacentModel = adjacentCollection.allowedModels[0];
+	this.model = collection.allowedModels[0];
+	this.majorCollection = collection.subCollectionOf;
+
+	this.keymap = {};
+	this.keymap[adjacentKey] = {};
+	this.keymap[key] = {};
+
+	if(!this.majorCollection){
+		throw new Error('The Collection needs to be initilized as a Sub Collection!');
+	}
+	if(!this.adjacentModel || !this.model){
+		throw new Error('crossFilter Collections require given Models!');
+	}
+
+
+	this.adjacentCollection.on('Add', function(event){
+		for(var i = 0; i < event.items.length;i++){
+			moveItemsWhere(this.majorCollection, this.collection, this.key, event.items[i][this.adjacentKey]);
+			//locateAndAdd(this.majorCollection, this.collection, this.key, event.items[i], this.adjacentKey, this.adjacentCollection);
+		}
+	}.bind(this));
+
+	this.adjacentCollection.on('Remove', function(event){
+		for(var i = 0; i < event.items.length;i++){
+			locateAndRemove(this.majorCollection, this.collection, this.key, event.items[i], this.adjacentKey, this.adjacentCollection);
+		}
+	}.bind(this));
+
+	this.collection.filter(function(item){
+		if(findInCollection(this.adjacentCollection, this.adjacentKey, item[this.key])){
+			return true;
+		}else{
+			//console.log('Here!!!', item[this.key]);
+			return false;
+		}
+	}.bind(this),this.model.toString() + '.'+this.key);
+
+	this.LinkExistingCollectionItems = function (c1, c2, k1, k2){
+		for(var ic1 = 0; ic1 < c1.length; ic1++){
+			for(var ic2 = 0; ic2 < c2.length; ic2++){
+
+				if(c1[ic1][k1] == c2[ic2][k2]){
+					this.majorCollectionMatches.push(c1[ic1]);
+					this.adjacentCollectionMatches.push(c2[ic2]);
+				}
+			}
+		}
+	}.bind(this);
+
+	//this.LinkExistingCollectionItems(this.majorCollection, this.adjacentCollection, this.key, this.adjacentKey);
+
+	function locateAndAdd(collection, targetCollection, key, item, itemKey, adjacentCollection){
+		var foundItem = findInCollection(collection, key, item[itemKey]);
+		if(foundItem && collection.indexOfItem(foundItem) > -1){
+			targetCollection.__addSingleItem(foundItem);
+		}
+	}
+
+	function locateAndRemove(collection, targetCollection, key, item, itemKey, adjacentCollection){
+		if(findInCollection(adjacentCollection, itemKey, item[itemKey])) return true;
+
+		var foundItem = findInCollection(collection, key, item[itemKey]);
+		if(foundItem && collection.indexOfItem(foundItem) > -1){
+			targetCollection.__removeSingleItem(foundItem);
+		}
+	}
+
+}
+
+
+function findInCollection(collection, key, value){
+	for(var i = 0; i < collection.length; i++){
+		if(collection[i][key] == value){
+			return collection[i];
+		}
+	}
+	return false;
+}
+
+function addToKeyMap(keymap, key, item ){
+	if(!keymap[key][item[key]]) {
+		keymap[key][item[key]] = item;
+	}
+}
+
+function getItemFromKeyMap(keymap, key, value ){
+	return keymap[key][value];
+}
+
+function moveItemsWhere(fromCollection, toCollection, key, value){
+	for(var i = 0 ; i < fromCollection.length; i++){
+		if(fromCollection[i][key] == value){
+			var item = fromCollection[i];
+			if(toCollection.indexOfItem(item) == -1){
+				toCollection.__addSingleItem(item);
+			} 
+		}
+	}
+}
+},{"./CollectionItem.js":3,"./subpub.js":10}],2:[function(require,module,exports){
 module.exports = CollectionElement;
 var ElementCollection = require('./ElementCollection.js');
 var ModelValue = require('./ModelValue.js');
@@ -364,7 +546,7 @@ function get(collectionItem, key){
 function set(collectionItem, key, value){
 	collectionItem.Item[key] = value;
 }
-},{"./subpub.js":9}],4:[function(require,module,exports){
+},{"./subpub.js":10}],4:[function(require,module,exports){
 module.exports = ElementCollection;
 var QuickStep = require('./QuickStep.js');
 
@@ -406,7 +588,10 @@ ElementCollection.prototype.pushin = function(){
 ElementCollection.prototype.pullout = function(){
 	this.inState = 0;
 	for(var i = this.children.length-1; i >= 0; i--){
-		if(this.children[i].parentElement) this.children[i].parentElement.removeChild(this.children[i]);
+		if(this.children[i].parentElement) {
+			QuickStep.remove(this.children[i]);
+			//this.children[i].parentElement.removeChild(this.children[i]);
+		}
 	}			
 }
 
@@ -414,8 +599,12 @@ ElementCollection.prototype.reInsertNodes = function(){
 	if(this.parentElement && this.inState == 1){
 		var beforeNode = this.placeHolder;
 		for(var i = this.children.length-1; i >= 0; i--){
-			if(this.children[i].parentElement) this.children[i].remove();
-			this.parentElement.insertBefore(this.children[i], beforeNode);
+			if(this.children[i].parentElement) {
+				QuickStep.remove(this.children[i]);
+				//this.children[i].remove();
+			}
+			QuickStep.insertBefore(this.children[i], beforeNode);
+			//this.parentElement.insertBefore(this.children[i], beforeNode);
 			beforeNode = this.children[i];
 		}		
 	}
@@ -455,7 +644,8 @@ ElementCollection.prototype.appendChild = function(element){
 	if(!element.parentElement) {
 		this.children.push(element);
 		if(this.inState == 1){
-			this.parentElement.insertBefore(element,this.placeHolder);
+			QuickStep.insertBefore(element,this.placeHolder);
+			//this.parentElement.insertBefore(element,this.placeHolder);
 		}		
 	}
 }
@@ -464,7 +654,7 @@ ElementCollection.prototype.removeChild = function(element){
 	var foundIndex = this.children.indexOf(element);
 	if(foundIndex >= 0) {
 		this.children.splice(foundIndex,1);
-		if(element.parentElement)element.parentElement.removeChild(element);
+		QuickStep.remove(element);
 	}
 }
 
@@ -475,9 +665,11 @@ ElementCollection.prototype.insertBefore = function(element, existingChild){
 		if(this.inState == 1) {
 
 			if(existingChild.parentElement == this.parentElement){
-				this.parentElement.insertBefore(element, existingChild);	
+				QuickStep.insertBefore(element,existingChild);
+				//this.parentElement.insertBefore(element, existingChild);	
 			}else{
-				this.parentElement.insertBefore(element, this.placeHolder);
+				QuickStep.insertBefore(element,this.placeHolder);
+				//this.parentElement.insertBefore(element, this.placeHolder);
 			}
 		}
 	}
@@ -523,6 +715,7 @@ var SubPub = require('./subpub.js');
 module.exports = Model;
 
 function Model(name, keys, settings) {
+
 	function Item(model, keyValuePair){
 		var self = this;
 		var properties = {};
@@ -534,22 +727,33 @@ function Model(name, keys, settings) {
 		properties.keyValuePair = keyValuePair || {};
 		properties.Model = model;
 		initItemGettersAndSetters(self);
+		self.init(self);
 	}
 
 	Item.keys = keys;
 	Item.prototype.Settings = settings || {};
+	Item.prototype.extenedFrom = [];
 	Item.modelName= name;
 	Item.prototype.toString = function() {return this.Properties.Model.modelName;};
 	Item.prototype.event = function(eventProperties){
 		fireEvent(this, new ItemEvent(this, eventProperties));
 	};
+	Item.prototype.init = function(){};
 	Item.prototype.on = on;
 	Item.SubPub = new SubPub();
 	Item.on = on;
 
 	Item.__proto__.toString = function(){return "Model";}
+	Item.__proto__.extends = function(model){
+		return extendModel(this,model);
+	}
 
-	return Item.bind({},Item);
+	var inculcatedFunction = Item.bind({},Item);
+	inculcatedFunction.Item = Item;
+	inculcatedFunction.keys = keys;
+	inculcatedFunction.prototype = Item.prototype;
+	inculcatedFunction.name = name;
+	return inculcatedFunction;
 }
 
 function on(eventName,callBack) {
@@ -606,36 +810,88 @@ function fireEvent(item, event) {
 	item.ParentSubPub.publish(item.toString() + "." + event.key, event);
 }
 
-},{"./subpub.js":9}],6:[function(require,module,exports){
+
+function extendModel(model, withModel){
+	if(model.toString() == "Model" && withModel.toString() == "Model") {
+		model.prototype.extenedFrom.push(withModel.name);
+
+		//Extend Keys
+		for(var i = 0; i < withModel.keys.length; i++){
+			var key = withModel.keys[i];
+			if(model.keys.indexOf(key) < 0) {
+				model.keys.push(key);	
+			}
+		}
+
+		//Extend prototypes
+		for(proto in withModel.prototype){
+
+			if( 	proto == "Settings"
+				||	proto == "on"
+				||	proto == "event"
+				||	proto == "toString"
+				||	proto == "init"
+				||	proto == "extenedFrom") {
+				continue;
+			}
+
+			if(model.prototype[proto] == undefined) {
+				model.prototype[proto] = withModel.prototype[proto];
+			}
+		}
+
+		//Extend proto.init
+		if(typeof withModel.prototype.init == 'function'){
+			model.prototype.init = function(nativeInit, extenededInit, item){
+				extenededInit.call(item);
+				nativeInit.call(item);
+			}.bind(model,model.prototype.init,withModel.prototype.init);		
+		}
+
+		return model;
+	}else{
+		return false;
+	}
+}
+},{"./subpub.js":10}],6:[function(require,module,exports){
 module.exports = ModelValue;
 var QuickStep = require('./QuickStep.js');
 
 function ModelValue(item){
-	this.SubPub = item.SubPub;
-	this.item = item;
-	this.stringTester = new createValueStringTester(item);
+	if(item.toString() == "CollectionItem"){
+		this.metaSubPub = item.SortMeta.SubPub;
+		this.SubPub = item.SubPub;
+		this.item = item;
+		this.modelKeys = item.Item.Properties.Model.keys;
+	}else{
+		this.metaSubPub = false;
+		this.SubPub = item.SubPub;
+		this.item = item;
+		this.modelKeys = item.Properties.Model.keys;
+	}
+	
+	this.stringTester = new createValueStringTester(this.item, this.modelKeys);
 	return Value.bind(this);
 }
 
 function Value(valueString){
-
 	var keysUsed = this.stringTester.test(valueString);
-
 	return {
 		item : this.item,
 		keys : keysUsed,
+		modelKeys : this.modelKeys,
 		valueString : valueString,
 		SubPub : this.SubPub,
-		metaSubPub : this.item.SortMeta.SubPub.newGroup(),
+		metaSubPub : this.metaSubPub ? this.metaSubPub.newGroup() : this.SubPub,
 		stringTester : this.stringTester,
 		toString : function(){return "ModelValue"}
 	};
 }
 
 
-function createValueStringTester(item){
+function createValueStringTester(item, keys){
 	return (function(item){
-		var keys = item.Item.Properties.Model.keys;
+		//var keys = item.Properties.Model.keys;
 		var tester = {};
 		var __currentTestKeys = [];
 
@@ -692,6 +948,10 @@ function updateAttribute(modelValue, target, setting) {
 	target.setAttribute(setting, evaluateValueString(modelValue.item, modelValue.valueString));
 }
 
+function updateClass(modelValue, target) {
+	target.setAttribute('class', evaluateValueString(modelValue.item, modelValue.valueString));
+}
+
 function applyEventToTarget(modelValue, target, event){
 
 }
@@ -706,16 +966,31 @@ QuickStep.on('ModelValue',function(type,thing,target){
 
 QuickStep.on('element.object.style.*=ModelValue',function(type,thing,target, setting){
 	bindKeys(thing, updateStyle, target, setting);
+	updateStyle(thing, target, setting); 
 	return false;
 });
 
 QuickStep.on('element.object.attribute.*=ModelValue',function(type,thing,target, setting){
-	bindKeys(thing, updateStyle, target, setting);
+	bindKeys(thing, updateAttribute, target, setting);
+	updateAttribute(thing, target, setting);
 	return false;
 });
 
-QuickStep.on('element.object.attribute.*=ModelValue',function(type,thing,target, setting){
-	bindKeys(thing, updateStyle, target, setting);
+QuickStep.on('element.object.attr.*=ModelValue',function(type,thing,target, setting){
+	bindKeys(thing, updateAttribute, target, setting);
+	updateAttribute(thing, target, setting);
+	return false;
+});
+
+QuickStep.on('element.object.id=ModelValue',function(type,thing,target, setting){
+	bindKeys(thing, updateAttribute, target, "id");
+	updateAttribute(thing, target, "id");
+	return false;
+});
+
+QuickStep.on('element.object.class=ModelValue',function(type,thing,target, setting){
+	bindKeys(thing, updateClass, target);
+	target.setAttribute('class', evaluateValueString(thing.item,thing.valueString));
 	return false;
 });
 
@@ -789,12 +1064,28 @@ var QuickStep = {
 		}
 		return element;
 	},
+
+	insertBefore: function(element,beforeElment){
+		QuickStep.trigger(QuickStep.getType(beforeElment)+"<"+QuickStep.getType(element), element,beforeElment);
+		return element;
+	},
+
+	remove: function(element){
+		QuickStep.trigger('-'+QuickStep.getType(element), element,element)
+		return element;
+	},
+
+	append: function(element, parent){
+		QuickStep.trigger(QuickStep.getType(element), element,parent);
+		return element;
+	},
 	
 	trigger: function(type, thing,target){
+		var setting = arguments[3];
 		if( QuickStep.listeners[type] ){
 			for(var i = QuickStep.listeners[type].length - 1; i >= 0; i--){
 				listener = QuickStep.listeners[type][i];
-				if(typeof listener.method === 'function' && listener.method.call(target,type,thing,target) === false){
+				if(typeof listener.method === 'function' && listener.method.call(target,type,thing,target,setting) === false){
 					return QuickStep;	
 				}
 			}			
@@ -802,7 +1093,7 @@ var QuickStep = {
 			if(QuickStep.listeners.other[type] !== undefined){
 				for(var i = QuickStep.listeners.other[type].length - 1; i >= 0; i--){
 					method = QuickStep.listeners.other[type][i];
-					if(typeof method === 'function' && method.call(target,type,thing,target) === false){
+					if(typeof method === 'function' && method.call(target,type,thing,target,setting) === false){
 						return QuickStep;	
 					}
 				}
@@ -817,8 +1108,10 @@ var QuickStep = {
 	*/
 	getType: function(thing) {
 
+		
 		if(thing === undefined)return undefined;
 		if(thing === null) return null;
+		if(thing && thing.nodeType == 8) return 'element';
 
 		if(typeof thing == 'object' && thing.tagName && thing._localName){
 			return "element";
@@ -931,6 +1224,17 @@ QuickStep.on('element',function(type,thing,target){
 	target.appendChild(thing);
 	return false;
 });
+
+QuickStep.on('-element',function(type,thing,target){
+	if(thing.parentElement)thing.parentElement.removeChild(thing);
+	return false;
+});
+
+QuickStep.on('element<element',function(type,thing,target){
+	if(target.parentElement)target.parentElement.insertBefore(thing, target);
+	return false;
+});
+
 QuickStep.on('string',function(type,thing,target){
 	target.appendChild(document.createTextNode(thing));
 	return false;
@@ -947,6 +1251,15 @@ QuickStep.on('object',function(type,thing,target){
 	for(var i in thing){
 		QuickStep.trigger(QuickStep.getType(target)+'.object.'+i+"="+QuickStep.getType(thing[i]),thing[i],target);
 	}
+	return false;
+});
+
+QuickStep.on('[object Arguments]',function(type,thing,target){
+	var argArray = [];
+	for(var i = 0; i < thing.length;i++){
+		argArray.push(thing[i]);
+	}
+	QuickStep.apply(target,argArray);
 	return false;
 });
 
@@ -976,6 +1289,20 @@ QuickStep.on('element.object.attribute=object',function(type,thing,target){
 	return false;
 });
 
+
+QuickStep.on('element.object.attr=object',function(type,thing,target){
+	for(var i in thing){
+		var type = QuickStep.getType(thing[i]);
+		if(type == 'string' || type == "number"){
+			target.setAttribute(i,thing[i]);
+		}else{
+			QuickStep.trigger("element.object.attribute."+i+"="+type,thing[i],target);
+			QuickStep.trigger("element.object.attribute.*="+type,thing[i],target, i);
+		}
+	}
+	return false;
+});
+
 QuickStep.on('element.object.parent=element',function(type,thing,target){
 	QuickStep.apply(thing,[target]);
 	return false;
@@ -985,19 +1312,95 @@ QuickStep.on('element.object.class=string',function(type,thing,target){
 	return false;
 });
 
+QuickStep.on('element.object.html=string',function(type,thing,target){
+	target.innerHTML = thing;
+	return false;
+});
+
+QuickStep.on('element.object.id=string',function(type,thing,target){
+	target.setAttribute("id", thing);
+	return false;
+});
+
+QuickStep.on('element.object.type=string',function(type,thing,target){
+	target.setAttribute("type", thing);
+	return false;
+});
+
+QuickStep.on('element.object.value=string',function(type,thing,target){
+	target.setAttribute("value", thing);
+	return false;
+});
+
+QuickStep.on('element.object.value=number',function(type,thing,target){
+	target.setAttribute("value", thing);
+	return false;
+});
+
 module.exports = QuickStep;
 },{}],8:[function(require,module,exports){
+var Model = require('../Model.js');
+var QuickStep = require('../QuickStep.js');
+
+var Element = new Model("Element",['element, hidden']);
+
+Element.prototype.init = function(){
+	this.__proto__.toString = function(){ return "qsElement"}
+	this.hidden = 0;
+}
+
+Element.prototype.hide = function(){
+	if(this.element){
+		this.element.style.display = 'none';
+		this.hidden = 0;		
+	}
+}
+
+Element.prototype.show = function(){
+	if(this.element){
+		this.element.style.display = '';
+		this.hidden = 0;		
+	}
+}
+
+
+QuickStep.on('qsElement',function(type,thing,target){
+	var element = thing.element || document.createElement('div');
+	QuickStep.apply(target,element);
+	return false;
+});
+
+QuickStep.on('-qsElement',function(type,thing){
+	if(thing.element.parentElement)thing.element.parentElement.removeChild(thing.element);
+	return false;
+});
+
+QuickStep.on('element<qsElement',function(type,thing,target){
+	var element = thing.element || document.createElement('div');
+	if(target.parentElement)target.parentElement.insertBefore(element, target);
+	return false;
+});
+},{"../Model.js":5,"../QuickStep.js":7}],9:[function(require,module,exports){
 var QuickStep = require('./QuickStep.js');
 var Model = require('./Model.js');
 var Collection = require('./Collection.js');
 var CollectionElement = require('./CollectionElement.js');
+var ModelValue = require('./ModelValue.js');
+var Element = require('./extensions/element.js');
 
-QuickStep.Model = QuickStep;
+QuickStep.Model = Model;
 QuickStep.Collection = Collection;
 QuickStep.CollectionElement = CollectionElement;
+QuickStep.ModelValue = ModelValue;
+QuickStep.Element = Element;
+
+
+
+
 module.exports = QuickStep;
+var window = window || {};
 if(window)window.QuickStep = QuickStep;
-},{"./Collection.js":1,"./CollectionElement.js":2,"./Model.js":5,"./QuickStep.js":7}],9:[function(require,module,exports){
+},{"./Collection.js":1,"./CollectionElement.js":2,"./Model.js":5,"./ModelValue.js":6,"./QuickStep.js":7,"./extensions/element.js":8}],10:[function(require,module,exports){
 module.exports = SubPub; 
 var subpubId = 0;
 function SubPub(){
@@ -1062,4 +1465,4 @@ function destroy(subpub, eventGroup) {
 		subpub.groups[eventGroup] = null;
 	}
 }
-},{}]},{},[8]);
+},{}]},{},[9]);

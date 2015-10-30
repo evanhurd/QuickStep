@@ -4,8 +4,10 @@ module.exports = CollectionItem;
 function CollectionItem(item, collection){
 	var self = this;
 	this.Item = item;
+	this._ = item;
 	this.Collection = collection;
 	this.SubPub = item.SubPub.newGroup();
+	this.MetaData = {};
 	this.SortMeta = {
 		nextItem : null,
 		previousItem : null,
@@ -43,6 +45,7 @@ function CollectionItem(item, collection){
 	});
 
 	initItemKeys(this);
+	//initMetaKeys(this);
 } 
 
 CollectionItem.prototype.toString = function(){return "CollectionItem";}
@@ -68,10 +71,27 @@ function initItemKeys(collectionItem){
 	}
 }
 
+function initMetaKeys(collectionItem){
+	var keys =  collectionItem.Collection.metaKeys;
+	for(var i = 0; i < keys.length;i++) {
+		collectionItem.__defineGetter__(keys[i], metaGet.bind(collectionItem, collectionItem, keys[i]));
+		collectionItem.__defineSetter__(keys[i], metaSet.bind(collectionItem, collectionItem, keys[i]));
+	}
+}
+
 function get(collectionItem, key){
 	return collectionItem.Item[key];
 }
 
 function set(collectionItem, key, value){
 	collectionItem.Item[key] = value;
+}
+
+function metaGet(collectionItem, key){
+	return collectionItem.MetaData[key];
+}
+
+function metaSet(collectionItem, key, value){
+	collectionItem.MetaData[key] = value;
+	collectionItem.Collection.event({type: key, items:[collectionItem]});
 }

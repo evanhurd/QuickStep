@@ -26,6 +26,7 @@ function ElementCollection(){
 	this.firstChild = null;
 	this.lastChild = null;
 	this.parentElement = null;
+	this.placeHolder.ElementCollection = this;
 	return this;
 }
 

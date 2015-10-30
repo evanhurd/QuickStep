@@ -308,4 +308,27 @@ describe('Collection Tests', function(){
 		
 	});
 
+	it("Meta Keys", function(done){
+		/*var Book = new Model("Book", ["Title","Author"]);
+		Books = new Collection(Book).withKeys(['selected', 'foo']);
+		book1 = new Book({Title:'Book 1', Author:'1 Book'});
+		Books.add(book1);
+		Books[0].selected = 1;
+		Books[0].foo = 2;
+
+		function testEvent(event){
+			Books.SubPub.unsubscribe('Remove', testEvent);
+			if(event.type == 'Remove' && event.items.length == 1){
+				done();
+			}else{
+				done(new Error("Did not recieve the expected event!"));
+			}
+		}
+		Books.on('Remove', testEvent);
+
+		assert.equal(Books.length, 7, 'A: The length of Books should be 7!');
+		done();*/
+		
+	});
+
 });
